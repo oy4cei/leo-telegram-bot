@@ -1,0 +1,4 @@
+node_modules
+.env
+leo_tracker.db
+.DS_Store
