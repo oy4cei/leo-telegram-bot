@@ -71,13 +71,37 @@ bot.on('message', async (msg) => {
     const text = msg.text;
 
     // Check if user is in custom volume input mode
-    if (userStates[chatId] === 'WAITING_VOLUME') {
+    if (userStates[chatId] && userStates[chatId].state === 'WAITING_VOLUME') {
         const volume = parseInt(text);
         if (!isNaN(volume) && volume > 0) {
             recordFeed(chatId, volume);
             delete userStates[chatId];
         } else {
             bot.sendMessage(chatId, 'Будь ласка, введіть коректний об\'єм (число).');
+        }
+        return;
+    }
+
+    // Check if user is in sleep input mode
+    if (userStates[chatId] && userStates[chatId].state === 'WAITING_SLEEP_START') {
+        if (isValidTime(text)) {
+            userStates[chatId].state = 'WAITING_SLEEP_END';
+            userStates[chatId].startTime = text;
+            bot.sendMessage(chatId, 'Введіть час закінчення (ГГ:ХХ):');
+        } else {
+            bot.sendMessage(chatId, 'Невірний формат. Введіть час у форматі ГГ:ХХ (наприклад, 14:30).');
+        }
+        return;
+    }
+
+    if (userStates[chatId] && userStates[chatId].state === 'WAITING_SLEEP_END') {
+        if (isValidTime(text)) {
+            const startTime = userStates[chatId].startTime;
+            const endTime = text;
+            recordManualSleep(chatId, startTime, endTime);
+            delete userStates[chatId];
+        } else {
+            bot.sendMessage(chatId, 'Невірний формат. Введіть час у форматі ГГ:ХХ (наприклад, 16:00).');
         }
         return;
     }
@@ -110,11 +134,9 @@ bot.on('message', async (msg) => {
             break;
 
         // Sleep Actions
-        case '▶️ Почати сон':
-            startSleep(chatId);
-            break;
-        case '⏹ Закінчити сон':
-            endSleep(chatId);
+        case '📝 Записати сон':
+            userStates[chatId] = { state: 'WAITING_SLEEP_START' };
+            bot.sendMessage(chatId, 'Введіть час початку (ГГ:ХХ):');
             break;
 
         // Feed Actions with volume
@@ -125,7 +147,7 @@ bot.on('message', async (msg) => {
             recordFeed(chatId, 160);
             break;
         case '✏️ Інший об\'єм':
-            userStates[chatId] = 'WAITING_VOLUME';
+            userStates[chatId] = { state: 'WAITING_VOLUME' };
             bot.sendMessage(chatId, 'Введіть об\'єм суміші в мл:');
             break;
 
@@ -138,37 +160,34 @@ bot.on('message', async (msg) => {
     }
 });
 
-function startSleep(chatId) {
-    // Check if already sleeping
-    db.get("SELECT id FROM activities WHERE type = 'SLEEP' AND endTime IS NULL ORDER BY id DESC LIMIT 1", [], (err, row) => {
-        if (row) {
-            bot.sendMessage(chatId, 'Лео вже спит! Спочатку закінчіть попередній сон.');
-        } else {
-            const now = new Date().toISOString();
-            db.run("INSERT INTO activities (type, startTime) VALUES (?, ?)", ['SLEEP', now], (err) => {
-                if (err) console.error(err);
-                bot.sendMessage(chatId, 'Сон почався! 💤', mainMenu);
-            });
-        }
-    });
+function isValidTime(timeStr) {
+    const regex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    return regex.test(timeStr);
 }
 
-function endSleep(chatId) {
-    db.get("SELECT id, startTime FROM activities WHERE type = 'SLEEP' AND endTime IS NULL ORDER BY id DESC LIMIT 1", [], (err, row) => {
-        if (row) {
-            const now = new Date().toISOString();
-            db.run("UPDATE activities SET endTime = ? WHERE id = ?", [now, row.id], (err) => {
-                if (err) console.error(err);
+function recordManualSleep(chatId, startTimeStr, endTimeStr) {
+    const today = DateTime.now().setZone('Europe/Kiev').toISODate(); // YYYY-MM-DD
 
-                const start = DateTime.fromISO(row.startTime);
-                const end = DateTime.fromISO(now);
-                const diff = end.diff(start, ['hours', 'minutes']).toObject();
+    // Construct ISO strings for start and end
+    // Note: This assumes sleep is within the same day or ends the next day if end < start?
+    // For simplicity, let's assume same day first.
 
-                bot.sendMessage(chatId, `Сон закінчено! Тривалість: ${Math.floor(diff.hours)}год ${Math.floor(diff.minutes)}хв. Доброго ранку! ☀️`, mainMenu);
-            });
-        } else {
-            bot.sendMessage(chatId, 'Немає активного сну. Спочатку почніть сон.');
-        }
+    let startDateTime = DateTime.fromFormat(`${today} ${startTimeStr}`, 'yyyy-MM-dd HH:mm', { zone: 'Europe/Kiev' });
+    let endDateTime = DateTime.fromFormat(`${today} ${endTimeStr}`, 'yyyy-MM-dd HH:mm', { zone: 'Europe/Kiev' });
+
+    // Handle overnight sleep (if end time is earlier than start time, assume next day)
+    if (endDateTime < startDateTime) {
+        endDateTime = endDateTime.plus({ days: 1 });
+    }
+
+    const startISO = startDateTime.toUTC().toISO();
+    const endISO = endDateTime.toUTC().toISO();
+
+    db.run("INSERT INTO activities (type, startTime, endTime) VALUES (?, ?, ?)", ['SLEEP', startISO, endISO], (err) => {
+        if (err) console.error(err);
+
+        const diff = endDateTime.diff(startDateTime, ['hours', 'minutes']).toObject();
+        bot.sendMessage(chatId, `Записано! Сон з ${startTimeStr} до ${endTimeStr} (${Math.floor(diff.hours)}г ${Math.floor(diff.minutes)}хв) ✅`, mainMenu);
     });
 }
 
