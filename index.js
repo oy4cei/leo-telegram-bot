@@ -37,7 +37,6 @@ const reportMenu = {
 const sleepMenu = {
     reply_markup: {
         keyboard: [
-            ['▶️ Почати сон', '⏹ Закінчити сон'],
             ['🔙 Назад']
         ],
         resize_keyboard: true
@@ -135,7 +134,7 @@ bot.on('message', async (msg) => {
     // Main Menu Routing
     switch (text) {
         case '🛌 Сон':
-            bot.sendMessage(chatId, 'Управління сном:', sleepMenu);
+            bot.sendMessage(chatId, 'Щоб записати сон, просто надішліть час або інтервал.\n\nНаприклад:\n`14:30-16:00`\n`10:00 11:30`\n`21:00` (тільки початок)', { parse_mode: 'Markdown', ...sleepMenu });
             break;
         case '🍼 Годування':
             bot.sendMessage(chatId, 'Оберіть об\'єм:', feedMenu);
@@ -160,10 +159,7 @@ bot.on('message', async (msg) => {
             break;
 
         // Sleep Actions
-        case '📝 Записати сон':
-            userStates[chatId] = { state: 'WAITING_SLEEP_START' };
-            bot.sendMessage(chatId, 'Введіть час початку (ГГ:ХХ) або інтервал (наприклад 14:00-15:30):');
-            break;
+
 
         // Feed Actions with volume
         case '🍼 130 мл':
