@@ -75,6 +75,18 @@ bot.onText(/\/start/, (msg) => {
     bot.sendMessage(msg.chat.id, 'Привіт! Я допоможу тобі вести щоденник Лео.', mainMenu);
 });
 
+bot.onText(/\/reset/, (msg) => {
+    const chatId = msg.chat.id;
+    db.run("DELETE FROM activities", (err) => {
+        if (err) {
+            console.error(err);
+            bot.sendMessage(chatId, 'Помилка при очищенні бази.');
+        } else {
+            bot.sendMessage(chatId, '🗑 База даних повністю очищена!');
+        }
+    });
+});
+
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
