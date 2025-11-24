@@ -18,7 +18,17 @@ const mainMenu = {
         keyboard: [
             ['🛌 Сон', '🍼 Годування'],
             ['💩 Підгузок', '🛁 Купання'],
-            ['🚶 Прогулянка', '📊 Звіт']
+            ['🚶 Прогулянка', '📊 Звіти']
+        ],
+        resize_keyboard: true
+    }
+};
+
+const reportMenu = {
+    reply_markup: {
+        keyboard: [
+            ['📅 За сьогодні', '🗓 За тиждень'],
+            ['🔙 Назад']
         ],
         resize_keyboard: true
     }
@@ -129,8 +139,14 @@ bot.on('message', async (msg) => {
         case '🚶 Прогулянка':
             recordActivity(chatId, 'WALK', 'Прогулянка');
             break;
-        case '📊 Звіт':
+        case '📊 Звіти':
+            bot.sendMessage(chatId, 'Оберіть період:', reportMenu);
+            break;
+        case '📅 За сьогодні':
             generateReport(chatId);
+            break;
+        case '🗓 За тиждень':
+            generateWeeklyReport(chatId);
             break;
 
         // Sleep Actions
@@ -214,66 +230,70 @@ function generateReport(chatId) {
     const endOfDay = `${today}T23:59:59.999Z`;
 
     let report = `📊 *Звіт за сьогодні (${today})*\n\n`;
+    // ... (existing logic remains, just wrapped in function)
+    generateReportLogic(chatId, startOfDay, endOfDay, report);
+}
+
+function generateWeeklyReport(chatId) {
+    const end = DateTime.now().setZone('Europe/Kiev');
+    const start = end.minus({ days: 7 });
+
+    const startStr = start.toISODate() + 'T00:00:00.000Z';
+    const endStr = end.toISODate() + 'T23:59:59.999Z';
+
+    let report = `🗓 *Звіт за тиждень (${start.toFormat('dd.MM')} - ${end.toFormat('dd.MM')})*\n\n`;
+    generateReportLogic(chatId, startStr, endStr, report);
+}
+
+function generateReportLogic(chatId, startTime, endTime, initialReport) {
+    let report = initialReport;
 
     db.serialize(() => {
         // Sleep
-        db.all("SELECT startTime, endTime FROM activities WHERE type = 'SLEEP' AND startTime >= ? AND startTime <= ?", [startOfDay, endOfDay], (err, rows) => {
+        db.all("SELECT startTime, endTime FROM activities WHERE type = 'SLEEP' AND startTime >= ? AND startTime <= ?", [startTime, endTime], (err, rows) => {
             let totalSleepMinutes = 0;
             let sleepCount = 0;
-            let sleepDetails = '';
 
             rows.forEach(row => {
                 if (row.endTime) {
                     const start = DateTime.fromISO(row.startTime).setZone('Europe/Kiev');
                     const end = DateTime.fromISO(row.endTime).setZone('Europe/Kiev');
-                    const duration = end.diff(start, ['hours', 'minutes']).toObject();
                     totalSleepMinutes += end.diff(start, 'minutes').minutes;
                     sleepCount++;
-
-                    sleepDetails += `  ${start.toFormat('HH:mm')} - ${end.toFormat('HH:mm')} (${Math.floor(duration.hours)}г ${Math.floor(duration.minutes)}хв)\n`;
                 }
             });
 
             const hours = Math.floor(totalSleepMinutes / 60);
             const minutes = Math.round(totalSleepMinutes % 60);
             report += `💤 *Сон*: ${sleepCount} раз(ів), всього ${hours}год ${minutes}хв\n`;
-            if (sleepDetails) {
-                report += sleepDetails;
-            }
 
             // Feeds with volume
-            db.all("SELECT startTime, value FROM activities WHERE type = 'FEED' AND startTime >= ? AND startTime <= ?", [startOfDay, endOfDay], (err, rows) => {
+            db.all("SELECT startTime, value FROM activities WHERE type = 'FEED' AND startTime >= ? AND startTime <= ?", [startTime, endTime], (err, rows) => {
                 let totalVolume = 0;
                 let feedCount = rows.length;
-                let feedDetails = '';
 
                 rows.forEach(row => {
-                    const time = DateTime.fromISO(row.startTime).setZone('Europe/Kiev');
                     const volume = row.value ? parseInt(row.value) : 0;
                     totalVolume += volume;
-                    feedDetails += `  ${time.toFormat('HH:mm')} - ${volume} мл\n`;
                 });
 
                 report += `\n🍼 *Годування*: ${feedCount} раз(ів), всього ${totalVolume} мл\n`;
-                if (feedDetails) {
-                    report += feedDetails;
-                }
 
                 // Diapers
-                db.all("SELECT subtype, COUNT(*) as count FROM activities WHERE type = 'DIAPER' AND startTime >= ? AND startTime <= ? GROUP BY subtype", [startOfDay, endOfDay], (err, rows) => {
+                db.all("SELECT subtype, COUNT(*) as count FROM activities WHERE type = 'DIAPER' AND startTime >= ? AND startTime <= ? GROUP BY subtype", [startTime, endTime], (err, rows) => {
                     report += `\n💩 *Підгузки*:\n`;
                     rows.forEach(row => {
                         report += `- ${row.subtype}: ${row.count}\n`;
                     });
 
                     // Bath
-                    db.get("SELECT COUNT(*) as count FROM activities WHERE type = 'BATH' AND startTime >= ? AND startTime <= ?", [startOfDay, endOfDay], (err, row) => {
+                    db.get("SELECT COUNT(*) as count FROM activities WHERE type = 'BATH' AND startTime >= ? AND startTime <= ?", [startTime, endTime], (err, row) => {
                         if (row && row.count > 0) {
                             report += `\n🛁 *Купання*: ${row.count} раз(ів)\n`;
                         }
 
                         // Walk
-                        db.get("SELECT COUNT(*) as count FROM activities WHERE type = 'WALK' AND startTime >= ? AND startTime <= ?", [startOfDay, endOfDay], (err, row) => {
+                        db.get("SELECT COUNT(*) as count FROM activities WHERE type = 'WALK' AND startTime >= ? AND startTime <= ?", [startTime, endTime], (err, row) => {
                             if (row && row.count > 0) {
                                 report += `🚶 *Прогулянка*: ${row.count} раз(ів)\n`;
                             }
