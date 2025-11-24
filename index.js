@@ -92,18 +92,18 @@ bot.on('message', async (msg) => {
         return;
     }
 
+    // Global check for interval format "14:00-15:30" or "14:00 15:30" (works without state)
+    const globalIntervalMatch = text.match(/^(\d{1,2}:\d{2})[\s\-](\d{1,2}:\d{2})$/);
+    if (globalIntervalMatch) {
+        const startTime = globalIntervalMatch[1];
+        const endTime = globalIntervalMatch[2];
+        recordManualSleep(chatId, startTime, endTime);
+        if (userStates[chatId]) delete userStates[chatId];
+        return;
+    }
+
     // Check if user is in sleep input mode
     if (userStates[chatId] && userStates[chatId].state === 'WAITING_SLEEP_START') {
-        // Check for interval format "14:00-15:30" or "14:00 15:30"
-        const intervalMatch = text.match(/^(\d{1,2}:\d{2})[\s\-](\d{1,2}:\d{2})$/);
-        if (intervalMatch) {
-            const startTime = intervalMatch[1];
-            const endTime = intervalMatch[2];
-            recordManualSleep(chatId, startTime, endTime);
-            delete userStates[chatId];
-            return;
-        }
-
         if (isValidTime(text)) {
             userStates[chatId].state = 'WAITING_SLEEP_END';
             userStates[chatId].startTime = text;
