@@ -249,7 +249,7 @@ function generateReport(chatId) {
 
     let report = `📊 *Звіт за сьогодні (${today})*\n\n`;
     // ... (existing logic remains, just wrapped in function)
-    generateReportLogic(chatId, startOfDay, endOfDay, report);
+    generateReportLogic(chatId, startOfDay, endOfDay, report, 'daily');
 }
 
 function generateWeeklyReport(chatId) {
@@ -260,10 +260,10 @@ function generateWeeklyReport(chatId) {
     const endStr = end.toISODate() + 'T23:59:59.999Z';
 
     let report = `🗓 *Звіт за тиждень (${start.toFormat('dd.MM')} - ${end.toFormat('dd.MM')})*\n\n`;
-    generateReportLogic(chatId, startStr, endStr, report);
+    generateReportLogic(chatId, startStr, endStr, report, 'weekly');
 }
 
-function generateReportLogic(chatId, startTime, endTime, initialReport) {
+function generateReportLogic(chatId, startTime, endTime, initialReport, reportType) {
     let report = initialReport;
 
     db.serialize(() => {
@@ -271,31 +271,56 @@ function generateReportLogic(chatId, startTime, endTime, initialReport) {
         db.all("SELECT startTime, endTime FROM activities WHERE type = 'SLEEP' AND startTime >= ? AND startTime <= ?", [startTime, endTime], (err, rows) => {
             let totalSleepMinutes = 0;
             let sleepCount = 0;
+            let sleepDetails = '';
 
             rows.forEach(row => {
                 if (row.endTime) {
                     const start = DateTime.fromISO(row.startTime).setZone('Europe/Kiev');
                     const end = DateTime.fromISO(row.endTime).setZone('Europe/Kiev');
+                    const duration = end.diff(start, ['hours', 'minutes']).toObject();
                     totalSleepMinutes += end.diff(start, 'minutes').minutes;
                     sleepCount++;
+
+                    if (reportType === 'daily') {
+                        sleepDetails += `  ${start.toFormat('HH:mm')} - ${end.toFormat('HH:mm')} (${Math.floor(duration.hours)}г ${Math.floor(duration.minutes)}хв)\n`;
+                    }
                 }
             });
 
             const hours = Math.floor(totalSleepMinutes / 60);
             const minutes = Math.round(totalSleepMinutes % 60);
-            report += `💤 *Сон*: ${sleepCount} раз(ів), всього ${hours}год ${minutes}хв\n`;
+
+            if (reportType === 'daily') {
+                report += `💤 *Сон*: ${sleepCount} раз(ів), всього ${hours}год ${minutes}хв\n${sleepDetails}`;
+            } else {
+                const avgMinutes = Math.round(totalSleepMinutes / 7);
+                const avgHours = Math.floor(avgMinutes / 60);
+                const avgMins = avgMinutes % 60;
+                report += `💤 *Сон (сер)*: ${avgHours}год ${avgMins}хв / день\n`;
+            }
 
             // Feeds with volume
             db.all("SELECT startTime, value FROM activities WHERE type = 'FEED' AND startTime >= ? AND startTime <= ?", [startTime, endTime], (err, rows) => {
                 let totalVolume = 0;
                 let feedCount = rows.length;
+                let feedDetails = '';
 
                 rows.forEach(row => {
+                    const time = DateTime.fromISO(row.startTime).setZone('Europe/Kiev');
                     const volume = row.value ? parseInt(row.value) : 0;
                     totalVolume += volume;
+
+                    if (reportType === 'daily') {
+                        feedDetails += `  ${time.toFormat('HH:mm')} - ${volume} мл\n`;
+                    }
                 });
 
-                report += `\n🍼 *Годування*: ${feedCount} раз(ів), всього ${totalVolume} мл\n`;
+                if (reportType === 'daily') {
+                    report += `\n🍼 *Годування*: ${feedCount} раз(ів), всього ${totalVolume} мл\n${feedDetails}`;
+                } else {
+                    const avgVolume = Math.round(totalVolume / 7);
+                    report += `🍼 *Годування (сер)*: ${avgVolume} мл / день\n`;
+                }
 
                 // Diapers
                 db.all("SELECT subtype, COUNT(*) as count FROM activities WHERE type = 'DIAPER' AND startTime >= ? AND startTime <= ? GROUP BY subtype", [startTime, endTime], (err, rows) => {
