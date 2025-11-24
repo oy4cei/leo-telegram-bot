@@ -94,12 +94,22 @@ bot.on('message', async (msg) => {
 
     // Check if user is in sleep input mode
     if (userStates[chatId] && userStates[chatId].state === 'WAITING_SLEEP_START') {
+        // Check for interval format "14:00-15:30" or "14:00 15:30"
+        const intervalMatch = text.match(/^(\d{1,2}:\d{2})[\s\-](\d{1,2}:\d{2})$/);
+        if (intervalMatch) {
+            const startTime = intervalMatch[1];
+            const endTime = intervalMatch[2];
+            recordManualSleep(chatId, startTime, endTime);
+            delete userStates[chatId];
+            return;
+        }
+
         if (isValidTime(text)) {
             userStates[chatId].state = 'WAITING_SLEEP_END';
             userStates[chatId].startTime = text;
             bot.sendMessage(chatId, 'Введіть час закінчення (ГГ:ХХ):');
         } else {
-            bot.sendMessage(chatId, 'Невірний формат. Введіть час у форматі ГГ:ХХ (наприклад, 14:30).');
+            bot.sendMessage(chatId, 'Невірний формат. Введіть час (наприклад 14:30) або інтервал (14:00-15:30).');
         }
         return;
     }
@@ -152,7 +162,7 @@ bot.on('message', async (msg) => {
         // Sleep Actions
         case '📝 Записати сон':
             userStates[chatId] = { state: 'WAITING_SLEEP_START' };
-            bot.sendMessage(chatId, 'Введіть час початку (ГГ:ХХ):');
+            bot.sendMessage(chatId, 'Введіть час початку (ГГ:ХХ) або інтервал (наприклад 14:00-15:30):');
             break;
 
         // Feed Actions with volume
@@ -177,19 +187,31 @@ bot.on('message', async (msg) => {
 });
 
 function isValidTime(timeStr) {
-    const regex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    const regex = /^([0-9]{1,2}):([0-5][0-9])$/;
     return regex.test(timeStr);
 }
 
 function recordManualSleep(chatId, startTimeStr, endTimeStr) {
     const today = DateTime.now().setZone('Europe/Kiev').toISODate(); // YYYY-MM-DD
 
-    // Construct ISO strings for start and end
-    // Note: This assumes sleep is within the same day or ends the next day if end < start?
-    // For simplicity, let's assume same day first.
+    // Helper to parse time string like "9:30" or "14:00"
+    const parseTime = (timeStr) => {
+        const parts = timeStr.split(':');
+        const hour = parts[0].padStart(2, '0');
+        const minute = parts[1];
+        return `${hour}:${minute}`;
+    };
 
-    let startDateTime = DateTime.fromFormat(`${today} ${startTimeStr}`, 'yyyy-MM-dd HH:mm', { zone: 'Europe/Kiev' });
-    let endDateTime = DateTime.fromFormat(`${today} ${endTimeStr}`, 'yyyy-MM-dd HH:mm', { zone: 'Europe/Kiev' });
+    const startFormatted = parseTime(startTimeStr);
+    const endFormatted = parseTime(endTimeStr);
+
+    let startDateTime = DateTime.fromFormat(`${today} ${startFormatted}`, 'yyyy-MM-dd HH:mm', { zone: 'Europe/Kiev' });
+    let endDateTime = DateTime.fromFormat(`${today} ${endFormatted}`, 'yyyy-MM-dd HH:mm', { zone: 'Europe/Kiev' });
+
+    if (!startDateTime.isValid || !endDateTime.isValid) {
+        bot.sendMessage(chatId, 'Помилка формату часу. Спробуйте ще раз.');
+        return;
+    }
 
     // Handle overnight sleep (if end time is earlier than start time, assume next day)
     if (endDateTime < startDateTime) {
